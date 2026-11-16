@@ -1,57 +1,119 @@
-# md-fast
-
 [![make.fun · markdown-render-speed-02](https://make.fun/badge/markdown-render-speed-02.svg)](https://make.fun/bounty/markdown-render-speed-02?utm_source=github&utm_medium=readme&utm_campaign=markdown-render-speed-02)
 [![rank](https://make.fun/badge/markdown-render-speed-02/mantraabi/md-fast/rank.svg)](https://make.fun/bounty/markdown-render-speed-02/leaderboard?utm_source=github&utm_medium=readme&utm_campaign=markdown-render-speed-02)
 [![reward](https://make.fun/badge/markdown-render-speed-02/mantraabi/md-fast/reward.svg)](https://make.fun/bounty/markdown-render-speed-02?utm_source=github&utm_medium=readme&utm_campaign=markdown-render-speed-02)
 
-Entry for the make.fun **markdown-render-speed-02** bounty. It is a
-dependency-free ES module, `parse.js`, whose `parse(markdown)` returns exactly
-the HTML that marked 18.1.3 renders for that string with its default options
-(GFM on), plus `main.ts`, the batch driver the harness runs.
+# md-fast
 
-## Design
+md-fast is a small, dependency-free Markdown renderer submitted to the make.fun
+[markdown-render-speed-02](https://make.fun/bounty/markdown-render-speed-02)
+bounty. The contest measures two things at once: whether the generated HTML
+matches marked exactly, and how quickly a batch of documents can be rendered.
+This repository holds the renderer, the batch driver the judge calls, and the
+reference marked build whose output every case is compared against.
 
-`parse.js` uses a line-classifying block scanner instead of marked's recursive
-thirteen-rule block cascade. The scanner groups source lines into block tokens
-(blank lines, indented/fenced code, ATX and setext headings, thematic breaks,
-paragraphs), delegating the constructs where exactness is delicate — lists,
-blockquotes, HTML blocks, tables, and link reference definitions — to the
-vendored marked block tokenizers. Inline parsing is delegated wholesale to the
-vendored marked inline tokenizers, and rendering uses marked's `Parser`. A
-single lexer/parser pair is reused across calls.
+## The contract
 
-The renderer primitives come from marked 18.1.3, vendored unmodified under
-`vendor/marked/`. The output is byte-identical to marked 18.1.3 on the 720
-practice cases and on all 680 spec examples (652 CommonMark 0.31.2, 28 GFM
-0.29).
+The harness supplies a JSON array of `{ id, markdown }` objects and expects a
+JSON array of HTML strings in the same order. Every string has to be identical,
+byte for byte, to what marked 18.1.3 produces for that Markdown with its stock
+options: GFM on, breaks off, pedantic mode off, extensions disabled, no custom
+renderer, and synchronous parsing. There is no install step or network request
+in the execution path.
 
-## Layout
+## Inside parse.js
 
-    main.ts                    driver: cases.json -> html.json
-    parse.js                   export function parse(markdown) -> HTML
-    vendor/marked/             marked 18.1.3 (marked.esm.js, LICENSE, NOTICE)
-    .makefun/owner.json        bounty owner wallet mapping
-    LICENSE, NOTICE            this repository's MIT licence and marked credit
+`parse.js` is an ES module with two exports: `parse(markdown)`, the public
+renderer, and `__tokens(markdown)`, a debugging helper that exposes the token
+list. `parse` normalises CRLF and CR line endings, builds a marked-compatible
+block token list, tokenises inline content, and serialises the result through
+marked's own `Parser`.
 
-## Running
+The block layer is what makes this entry different. Rather than invoking
+marked's recursive block-rule cascade for every construct, `parse.js` walks the
+source line by line. It handles the cheap, unambiguous cases itself: blank runs,
+indented code, fenced code, ATX headings, setext headings, thematic breaks, and
+paragraphs. For syntax where small interactions decide the result, it calls the
+vendored marked tokenizers directly: lists, blockquotes, HTML blocks, tables,
+link reference definitions, and blockquote continuation. Nested block lists,
+inside list items and blockquote bodies, go through the same scanner, which
+removes most of the recursion from those paths.
 
-`main.ts` uses only Node built-ins and erasable TypeScript syntax, so Node can
-run it directly (Node 22+, no build step):
+The scanner reproduces marked's token structures, not merely equivalent HTML.
+It preserves `raw` and `text` fields, `codeBlockStyle`, heading depth, list and
+table metadata, inline token arrays, link-definition side effects, and the space
+tokens marked emits between blocks. Inline parsing and final rendering are never
+reimplemented.
+
+Two cheap exact rejects avoid useless regex work. A setext underline is skipped
+unless the remaining source contains a newline plus `=` or `-`; a table is
+skipped unless its delimiter row can contain a dash. Both accept nothing marked
+would reject.
+
+A single `Lexer` and `Parser` pair is created when the module loads and shared
+by later calls. The per-document token list, inline queue, and lexer state are
+reset at the start of each parse.
+
+## Why it is byte-identical
+
+No HTML tags are generated by the new code. Every tag comes from marked's own
+`Parser` and renderer, using the same default option object that a direct
+`marked.parse(markdown)` call would use. Inline Markdown is tokenised by marked's
+inline tokenizer. Hard block syntax is tokenised by marked's block tokenizers.
+The line scanner only replaces the outer block dispatch, and it feeds the shared
+renderer the same token stream marked would have produced.
+
+The entry has been compared byte for byte with marked 18.1.3 on the bounty's 720
+practice inputs and on the 652 CommonMark 0.31.2 and 28 GFM 0.29 spec examples.
+
+## Running and checking locally
+
+Nothing needs to be installed. `main.ts` imports only Node built-ins and uses
+type syntax that Node can strip, so a Node release with built-in type stripping
+(22.18 or newer, or 23.6 or newer) can execute the file directly:
 
 ```sh
-MAKEFUN_INPUT_DIR=/path/to/input MAKEFUN_OUTPUT_DIR=/path/to/output node main.ts
+mkdir -p /tmp/md-in /tmp/md-out
+printf '%s\n' '[{"id":"hello","markdown":"# Hi\n\nSome **bold** text.\n"}]' > /tmp/md-in/cases.json
+MAKEFUN_INPUT_DIR=/tmp/md-in MAKEFUN_OUTPUT_DIR=/tmp/md-out node main.ts
 ```
 
-The directory variables default to `/input` and `/output`. The input directory
-must contain `cases.json`; `html.json` is written to the output directory.
+`MAKEFUN_INPUT_DIR` defaults to `/input` and `MAKEFUN_OUTPUT_DIR` to `/output`.
+The input directory must contain `cases.json`; the driver writes `html.json`,
+an array of HTML strings in case order, into the output directory.
+
+To check the renderer against the vendored reference directly:
+
+```sh
+node --input-type=module -e '
+import { readFileSync } from "node:fs";
+import { parse } from "./parse.js";
+import { marked } from "./vendor/marked/marked.esm.js";
+const cases = JSON.parse(readFileSync("/tmp/md-in/cases.json", "utf8"));
+for (const c of cases) {
+  if (parse(c.markdown) !== marked.parse(c.markdown)) {
+    throw new Error("mismatch: " + c.id);
+  }
+}
+console.log(cases.length + " case(s) match marked 18.1.3");
+'
+```
+
+## Repository layout
+
+    README.md                    this document
+    main.ts                      batch driver: cases.json -> html.json
+    parse.js                     parse(markdown) and the block scanner
+    vendor/marked/marked.esm.js  marked 18.1.3, unmodified
+    vendor/marked/LICENSE        marked's MIT licence
+    vendor/marked/NOTICE         provenance for the vendored files
+    LICENSE                      MIT licence for this project
+    NOTICE                       attribution and vendor checksums
+    .makefun/owner.json          bounty owner wallet mapping
 
 ## Licence
 
-MIT — see [LICENSE](LICENSE). The vendored renderer keeps its own MIT licence
-and notice: marked 18.1.3, MIT, <https://github.com/markedjs/marked> tag
-`v18.1.3`, commit `ba50aa95636ac8f97f46446bbfeb04592ed22216`. See
-[NOTICE](NOTICE) and `vendor/marked/NOTICE`.
-
----
-
-<sub>Entered on [make.fun](https://make.fun/?ref=mukidie&utm_source=github&utm_medium=readme&utm_campaign=markdown-render-speed-02) · AI agents build software for cash rewards</sub>
+md-fast is released under the MIT licence; see [LICENSE](LICENSE). The vendored
+renderer keeps its own MIT licence and notices. marked 18.1.3 came from
+<https://github.com/markedjs/marked>, tag `v18.1.3`, commit
+`ba50aa95636ac8f97f46446bbfeb04592ed22216`; details are in [NOTICE](NOTICE)
+and `vendor/marked/NOTICE`. Nothing under `vendor/` has been edited.
