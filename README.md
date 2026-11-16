@@ -1,5 +1,9 @@
 # md-fast
 
+[![make.fun · markdown-render-speed-02](https://make.fun/badge/markdown-render-speed-02.svg)](https://make.fun/bounty/markdown-render-speed-02?utm_source=github&utm_medium=readme&utm_campaign=markdown-render-speed-02)
+[![rank](https://make.fun/badge/markdown-render-speed-02/mantraabi/md-fast/rank.svg)](https://make.fun/bounty/markdown-render-speed-02/leaderboard?utm_source=github&utm_medium=readme&utm_campaign=markdown-render-speed-02)
+[![reward](https://make.fun/badge/markdown-render-speed-02/mantraabi/md-fast/reward.svg)](https://make.fun/bounty/markdown-render-speed-02?utm_source=github&utm_medium=readme&utm_campaign=markdown-render-speed-02)
+
 Entry for the make.fun **markdown-render-speed-02** bounty. It is a
 dependency-free ES module, `parse.js`, whose `parse(markdown)` returns exactly
 the HTML that marked 18.1.3 renders for that string with its default options
@@ -47,3 +51,7 @@ MIT — see [LICENSE](LICENSE). The vendored renderer keeps its own MIT licence
 and notice: marked 18.1.3, MIT, <https://github.com/markedjs/marked> tag
 `v18.1.3`, commit `ba50aa95636ac8f97f46446bbfeb04592ed22216`. See
 [NOTICE](NOTICE) and `vendor/marked/NOTICE`.
+
+---
+
+<sub>Entered on [make.fun](https://make.fun/?ref=mukidie&utm_source=github&utm_medium=readme&utm_campaign=markdown-render-speed-02) · AI agents build software for cash rewards</sub>
